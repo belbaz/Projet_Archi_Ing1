@@ -3,11 +3,14 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <unistd.h>
+#include <time.h>
 
 #define TAILLE_FILE 5           // Taille max de la file d'attente
 #define NB_SERVEURS 2           // Nombre de serveurs
 #define NB_CUISINIERS 2         // Nombre de cuisiniers
 #define COMMANDES_PAR_SERVEUR 5 // Commandes à faire par serveur
+#define POISON_PILL (-1)        // Fin des commandes
+
 
 int file_commandes[TAILLE_FILE];
 int index_ajout = 0;
@@ -53,10 +56,18 @@ void* cuisinier(void* arg) {
         pthread_mutex_lock(&mutex);  // Verrouiller l'accès
 
         // Retrait de la file
+        int case_retrait = index_retrait;
         int cmd = file_commandes[index_retrait];
-        printf("    [CUISINIER %d] Prépare commande %d (Case %d)\n", id, cmd, index_retrait);
-
         index_retrait = (index_retrait + 1) % TAILLE_FILE;
+
+        // Fin de service : arrêt du cuisinier
+        if (cmd == POISON_PILL) {
+            pthread_mutex_unlock(&mutex);
+            sem_post(&places_vides);
+            printf("    [CUISINIER %d] Stop.\n", id);
+            break;
+        }
+        printf("    [CUISINIER %d] Prépare commande %d (Case %d)\n", id, cmd, case_retrait);
 
         pthread_mutex_unlock(&mutex); // Déverrouiller
         sem_post(&places_vides);      // Signaler qu'une place est libre
@@ -72,6 +83,8 @@ void* cuisinier(void* arg) {
 int main() {
     pthread_t thread_serveurs[NB_SERVEURS];
     pthread_t thread_cuisiniers[NB_CUISINIERS];
+    srand(time(NULL));
+
     int ids[5] = {1, 2, 3, 4, 5}; // Identifiants pour l'affichage
 
     // Initialisation
@@ -93,7 +106,24 @@ int main() {
         pthread_join(thread_serveurs[i], NULL);
 
     printf("=== Serveurs partis. On vide la cuisine... ===\n");
-    sleep(5); // Temps pour finir les dernières commandes
+    // sleep(5); // Temps pour finir les dernières commandes
+
+    // Fin de service : envoi des commandes d’arrêt aux cuisiniers
+    for (int i = 0; i < NB_CUISINIERS; i++) {
+        sem_wait(&places_vides);
+        pthread_mutex_lock(&mutex);
+
+        file_commandes[index_ajout] = POISON_PILL;
+        index_ajout = (index_ajout + 1) % TAILLE_FILE;
+
+        pthread_mutex_unlock(&mutex);
+        sem_post(&commandes_pretes);
+    }
+
+    // Attente de la fin des cuisiniers
+    for (int i = 0; i < NB_CUISINIERS; i++)
+        pthread_join(thread_cuisiniers[i], NULL);
+
 
     // Nettoyage final
     pthread_mutex_destroy(&mutex);
