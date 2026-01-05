@@ -5,31 +5,39 @@
 #include <unistd.h>
 #include <time.h>
 
-#define TAILLE_FILE 5           // Taille max de la file d'attente
-#define NB_SERVEURS 2           // Nombre de serveurs
-#define NB_CUISINIERS 2         // Nombre de cuisiniers
-#define COMMANDES_PAR_SERVEUR 5 // Commandes à faire par serveur
-#define POISON_PILL (-1)        // Fin des commandes
+#define TAILLE_FILE 5           // Taille max de la file d'attente: 5
+#define NB_SERVEURS 2           // Nombre de serveurs: 2
+#define NB_CUISINIERS 2         // Nombre de cuisiniers: 2
+#define COMMANDES_PAR_SERVEUR 5 // Commandes à faire par serveur: 5
+#define POISON_PILL (-1)
 
+/*
+* Un mutex permet de garantir qu'un seul thread manipule une ressource à la fois.
+* Le sémaphore est une liste d'attente qui renvoie 0 ou >0
+* si c'est 0 le processus devient bloqué
+* sinon le processus s'exécuté immédiatement.
+*/
 
-int file_commandes[TAILLE_FILE];
+int file_commandes[TAILLE_FILE]; //tableau de la fille de commande de taille 5
 int index_ajout = 0;
 int index_retrait = 0;
 
 // --- Synchronisation ---
-pthread_mutex_t mutex;  // Bloque l'accès au tableau
-sem_t places_vides;     // Compte les places libres
+pthread_mutex_t mutex; // Bloque l'accès au tableau
+sem_t places_vides; // Compte les places libres
 sem_t commandes_pretes; // Compte les commandes à cuisiner
 
-// --- SERVEUR (Producteur) ---
-void* serveur(void* arg) {
+// Serveur (Producteur) : Il "produit" des commandes et les pose dans la file
+void* serveur(void* arg)
+{
     int id = *(int*)arg;
-
-    for (int i = 0; i < COMMANDES_PAR_SERVEUR; i++) {
-        int num_commande = rand() % 100;
+    int tab[COMMANDES_PAR_SERVEUR] = {'1', '2', '3', '4', '5'};
+    for (int i = 0; i < COMMANDES_PAR_SERVEUR; i++)
+    {
+        int num_commande = tab[i];
         sleep(rand() % 2); // Simule la prise de commande
 
-        sem_wait(&places_vides);    // Attend une place libre
+        sem_wait(&places_vides); // Attend une place libre
         pthread_mutex_lock(&mutex); // Verrouiller l'accès (Section Critique)
 
         // Ajout dans la file le numéro de commande
@@ -40,20 +48,22 @@ void* serveur(void* arg) {
         index_ajout = (index_ajout + 1) % TAILLE_FILE;
 
         pthread_mutex_unlock(&mutex); // Déverrouiller l'accès
-        sem_post(&commandes_pretes);  // Signaler qu'une commande est prête
+        sem_post(&commandes_pretes); // Signaler qu'une commande est prête
     }
 
     printf("--- Serveur %d a fini son service ---\n", id);
     return NULL;
 }
 
-// --- CUISINIER (Consommateur) ---
-void* cuisinier(void* arg) {
+// Cuisinier (Consommateur) : Il "consomme" les commandes pour les préparer
+void* cuisinier(void* arg)
+{
     int id = *(int*)arg;
 
-    while (1) {
+    while (1)
+    {
         sem_wait(&commandes_pretes); // Attendre une commande
-        pthread_mutex_lock(&mutex);  // Verrouiller l'accès
+        pthread_mutex_lock(&mutex); // Verrouiller l'accès
 
         // Retrait de la file
         int case_retrait = index_retrait;
@@ -61,7 +71,8 @@ void* cuisinier(void* arg) {
         index_retrait = (index_retrait + 1) % TAILLE_FILE;
 
         // Fin de service : arrêt du cuisinier
-        if (cmd == POISON_PILL) {
+        if (cmd == POISON_PILL)
+        {
             pthread_mutex_unlock(&mutex);
             sem_post(&places_vides);
             printf("    [CUISINIER %d] Stop.\n", id);
@@ -70,7 +81,7 @@ void* cuisinier(void* arg) {
         printf("    [CUISINIER %d] Prépare commande %d (Case %d)\n", id, cmd, case_retrait);
 
         pthread_mutex_unlock(&mutex); // Déverrouiller
-        sem_post(&places_vides);      // Signaler qu'une place est libre
+        sem_post(&places_vides); // Signaler qu'une place est libre
 
         // Simulation cuisson
         sleep(2);
@@ -80,9 +91,10 @@ void* cuisinier(void* arg) {
 }
 
 // --- MAIN ---
-int main() {
-    pthread_t thread_serveurs[NB_SERVEURS];
-    pthread_t thread_cuisiniers[NB_CUISINIERS];
+int main()
+{
+    pthread_t thread_serveurs[NB_SERVEURS]; //on crée 2 threads pour les 2 serveurs
+    pthread_t thread_cuisiniers[NB_CUISINIERS]; //on crée les threads pour les cuisiniers
     srand(time(NULL));
 
     int ids[5] = {1, 2, 3, 4, 5}; // Identifiants pour l'affichage
@@ -90,7 +102,7 @@ int main() {
     // Initialisation
     pthread_mutex_init(&mutex, NULL);
     sem_init(&places_vides, 0, TAILLE_FILE); // Au début, tout est vide
-    sem_init(&commandes_pretes, 0, 0);       // Au début, rien n'est prêt
+    sem_init(&commandes_pretes, 0, 0); // Au début, rien n'est prêt
 
     printf("=== OUVERTURE DU RESTAURANT ===\n");
 
@@ -106,10 +118,11 @@ int main() {
         pthread_join(thread_serveurs[i], NULL);
 
     printf("=== Serveurs partis. On vide la cuisine... ===\n");
-    // sleep(5); // Temps pour finir les dernières commandes
+    sleep(5); // Temps pour finir les dernières commandes
 
     // Fin de service : envoi des commandes d’arrêt aux cuisiniers
-    for (int i = 0; i < NB_CUISINIERS; i++) {
+    for (int i = 0; i < NB_CUISINIERS; i++)
+    {
         sem_wait(&places_vides);
         pthread_mutex_lock(&mutex);
 
@@ -122,7 +135,9 @@ int main() {
 
     // Attente de la fin des cuisiniers
     for (int i = 0; i < NB_CUISINIERS; i++)
+    {
         pthread_join(thread_cuisiniers[i], NULL);
+    }
 
 
     // Nettoyage final
