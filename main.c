@@ -9,7 +9,7 @@
 #define NB_SERVEURS 2           // Nombre de serveurs: 2
 #define NB_CUISINIERS 2         // Nombre de cuisiniers: 2
 #define COMMANDES_PAR_SERVEUR 5 // Commandes à faire par serveur: 5
-#define POISON_PILL (-1)
+#define POISON_PILL (-1)        // signal pour dire au cuisinier qu'il peut commencé son taf
 
 /*
 * Un mutex permet de garantir qu'un seul thread manipule une ressource à la fois.
@@ -60,10 +60,10 @@ void* cuisinier(void* arg)
 {
     int id = *(int*)arg;
 
-    while (1)
+    while (1)       //boucle infinis avec break lorqque
     {
-        sem_wait(&commandes_pretes); // Attendre une commande
-        pthread_mutex_lock(&mutex); // Verrouiller l'accès
+        sem_wait(&commandes_pretes); // Attendre une commande dispo
+        pthread_mutex_lock(&mutex); // Verrouiller l'acces au tableau section critique
 
         // Retrait de la file
         int case_retrait = index_retrait;
@@ -71,10 +71,10 @@ void* cuisinier(void* arg)
         index_retrait = (index_retrait + 1) % TAILLE_FILE;
 
         // Fin de service : arrêt du cuisinier
-        if (cmd == POISON_PILL)
+        if (cmd == POISON_PILL)             // si la valeur est -1 c'est le signal d'arret
         {
-            pthread_mutex_unlock(&mutex);
-            sem_post(&places_vides);
+            pthread_mutex_unlock(&mutex);       //unlock le mutex : on rend la clé
+            sem_post(&places_vides);            //on libere la place de la file d'attente pour que les autre puisse rentré
             printf("    [CUISINIER %d] Stop.\n", id);
             break;
         }
@@ -123,10 +123,10 @@ int main()
     // Fin de service : envoi des commandes d’arrêt aux cuisiniers
     for (int i = 0; i < NB_CUISINIERS; i++)
     {
-        sem_wait(&places_vides);
+        sem_wait(&places_vides); //met en attente
         pthread_mutex_lock(&mutex);
 
-        file_commandes[index_ajout] = POISON_PILL;
+        file_commandes[index_ajout] = POISON_PILL;      //envoie le signal d'arret
         index_ajout = (index_ajout + 1) % TAILLE_FILE;
 
         pthread_mutex_unlock(&mutex);
